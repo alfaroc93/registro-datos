@@ -1,22 +1,36 @@
 <!DOCTYPE html>
 <html lang="es">
 <head>
-  <!-- ====== CABECERA: información para el navegador, no se ve en pantalla ====== -->
+  <!-- ====== CABECERA ====== -->
   <meta charset="UTF-8">
-  <!-- Hace que la página se adapte a la pantalla del móvil -->
   <meta name="viewport" content="width=device-width, initial-scale=1">
   <title>Registro</title>
   <link rel="preconnect" href="https://fonts.googleapis.com">
   <link href="https://fonts.googleapis.com/css2?family=Figtree:wght@400;600;700&display=swap" rel="stylesheet">
 
-  <!-- ====== ESTILOS (CSS): cómo se ve la página ====== -->
+  <!-- Librería de Supabase (crea el objeto global "supabase") -->
+  <script src="https://cdn.jsdelivr.net/npm/@supabase/supabase-js@2"></script>
+
+  <!-- NUEVO: "mapa de importación". Le dice al navegador de dónde descargar
+       las librerías cuando el código escriba  import ... from "three"  -->
+  <script type="importmap">
+  {
+    "imports": {
+      "three": "https://cdn.jsdelivr.net/npm/three@0.186.1/build/three.module.js",
+      "three/addons/": "https://cdn.jsdelivr.net/npm/three@0.186.1/examples/jsm/",
+      "web-ifc": "https://cdn.jsdelivr.net/npm/web-ifc@0.0.78/web-ifc-api.js"
+    }
+  }
+  </script>
+
+  <!-- ====== ESTILOS (CSS) ====== -->
   <style>
-    /* Colores guardados como "variables" para cambiarlos en un solo sitio */
     :root {
       --fondo: #e9eef0;
       --tarjeta: #ffffff;
       --tinta: #16323d;
       --suave: #5b7480;
+      --linea: #d3dde1;
       --acento: #1f6f78;
       --error: #b3261e;
       --ok: #2e7d4f;
@@ -25,156 +39,647 @@
     body {
       margin: 0;
       min-height: 100vh;
-      display: grid;
-      place-items: center;          /* centra la tarjeta en la pantalla */
       padding: 24px;
       background: var(--fondo);
       color: var(--tinta);
       font-family: "Figtree", system-ui, -apple-system, "Segoe UI", sans-serif;
     }
-    main {
-      width: 100%;
-      max-width: 420px;
+
+    /* NUEVO: dos columnas en pantallas anchas (formulario | visor), una sola en el móvil */
+    .pagina {
+      max-width: 1280px;
+      margin: 0 auto;
+      display: grid;
+      grid-template-columns: 1fr;
+      gap: 24px;
+      align-items: start;
+    }
+    @media (min-width: 900px) {
+      .pagina { grid-template-columns: 380px 1fr; }
+    }
+
+    .tarjeta {
       background: var(--tarjeta);
-      padding: 32px 28px;
+      padding: 28px;
       border-radius: 6px;
       border-top: 6px solid var(--acento);
+      min-width: 0;            /* evita que el contenido ancho rompa la rejilla */
     }
     h1 { margin: 0 0 6px; font-size: 1.6rem; }
+    h2 { margin: 0 0 4px; font-size: 1.25rem; }
     p.intro { margin: 0 0 24px; color: var(--suave); line-height: 1.5; }
     label { display: block; font-weight: 600; margin-bottom: 6px; }
+    .opcional { font-weight: 400; color: var(--suave); }
     input {
       width: 100%;
       padding: 12px;
       margin-bottom: 18px;
       font: inherit;
-      font-size: 1rem;              /* 16px evita que el iPhone haga zoom */
+      font-size: 1rem;
       border: 1px solid #b9c7cd;
       border-radius: 4px;
     }
     input:focus { outline: 3px solid #9fd0d5; border-color: var(--acento); }
-    button {
-      width: 100%;
+    input[type="file"] {
       padding: 14px;
+      background: #f4f8f9;
+      border: 2px dashed #9fb6bf;
+      cursor: pointer;
+      margin-bottom: 6px;
+    }
+    .ayuda { margin: 0 0 18px; font-size: 0.9rem; color: var(--suave); }
+    button {
       font: inherit;
       font-weight: 700;
-      font-size: 1rem;
-      color: #fff;
-      background: var(--acento);
       border: none;
       border-radius: 4px;
       cursor: pointer;
     }
-    button:disabled { opacity: 0.6; cursor: wait; }
     button:focus-visible { outline: 3px solid #9fd0d5; outline-offset: 2px; }
+    #boton {
+      width: 100%;
+      padding: 14px;
+      font-size: 1rem;
+      color: #fff;
+      background: var(--acento);
+    }
+    #boton:disabled { opacity: 0.6; cursor: wait; }
     #mensaje { margin: 16px 0 0; min-height: 1.5em; font-weight: 600; }
     #mensaje.error { color: var(--error); }
     #mensaje.ok { color: var(--ok); }
+
+    /* ---- NUEVO: visor ---- */
+    .visor-cabecera {
+      display: flex;
+      justify-content: space-between;
+      align-items: center;
+      gap: 12px;
+      margin-bottom: 14px;
+    }
+    #encuadrar {
+      padding: 8px 14px;
+      color: var(--acento);
+      background: #e3f0f1;
+    }
+    #encuadrar:disabled { opacity: 0.5; cursor: default; }
+    .lienzo {
+      position: relative;
+      height: 58vh;
+      min-height: 340px;
+      background: #f1f4f5;
+      border: 1px solid var(--linea);
+      border-radius: 4px;
+      overflow: hidden;
+      touch-action: none;      /* para que los gestos táctiles muevan el modelo y no la página */
+    }
+    .lienzo canvas { display: block; width: 100%; height: 100%; }
+    #estado-visor {
+      position: absolute;
+      inset: 0;
+      display: grid;
+      place-items: center;
+      padding: 24px;
+      text-align: center;
+      color: var(--suave);
+      pointer-events: none;    /* deja pasar los clics al modelo */
+    }
+    #estado-visor.oculto { display: none; }
+    .pista { margin: 8px 0 0; font-size: 0.85rem; color: var(--suave); }
+
+    /* ---- NUEVO: panel de propiedades ---- */
+    #propiedades { margin-top: 20px; }
+    #propiedades .vacio { color: var(--suave); margin: 0; }
+    .elemento-tipo { margin: 0; font-size: 0.9rem; color: var(--suave); }
+    .elemento-nombre { margin: 2px 0 14px; font-size: 1.1rem; font-weight: 700; overflow-wrap: anywhere; }
+    details {
+      border: 1px solid var(--linea);
+      border-radius: 4px;
+      margin-bottom: 8px;
+    }
+    summary {
+      padding: 10px 12px;
+      font-weight: 600;
+      cursor: pointer;
+      background: #f4f8f9;
+    }
+    .tabla-scroll { overflow-x: auto; }
+    table { width: 100%; border-collapse: collapse; font-size: 0.92rem; }
+    th, td {
+      text-align: left;
+      vertical-align: top;
+      padding: 7px 12px;
+      border-top: 1px solid var(--linea);
+      overflow-wrap: anywhere;
+    }
+    th { width: 42%; font-weight: 600; color: var(--suave); }
   </style>
 </head>
 
 <body>
-  <!-- ====== CONTENIDO (HTML): lo que se ve ====== -->
-  <main>
-    <h1>Registro</h1>
-    <p class="intro">Rellena tus datos y pulsa "Enviar registro".</p>
+  <div class="pagina">
 
-    <!-- "novalidate" desactiva los avisos automáticos del navegador:
-         validamos nosotros en el JavaScript para controlar los mensajes -->
-    <form id="formulario" novalidate>
-      <label for="nombre">Nombre</label>
-      <input id="nombre" name="nombre" type="text" maxlength="100" autocomplete="given-name" required>
+    <!-- ====== FORMULARIO ====== -->
+    <main class="tarjeta">
+      <h1>Registro</h1>
+      <p class="intro">Rellena tus datos, adjunta tu modelo si lo tienes y pulsa "Enviar registro".</p>
 
-      <label for="apellidos">Apellidos</label>
-      <input id="apellidos" name="apellidos" type="text" maxlength="150" autocomplete="family-name" required>
+      <form id="formulario" novalidate>
+        <label for="nombre">Nombre</label>
+        <input id="nombre" name="nombre" type="text" maxlength="100" autocomplete="given-name" required>
 
-      <label for="email">Email</label>
-      <input id="email" name="email" type="email" maxlength="200" autocomplete="email" required>
+        <label for="apellidos">Apellidos</label>
+        <input id="apellidos" name="apellidos" type="text" maxlength="150" autocomplete="family-name" required>
 
-      <button type="submit" id="boton">Enviar registro</button>
-      <!-- aria-live hace que los lectores de pantalla lean el mensaje cuando cambie -->
-      <p id="mensaje" aria-live="polite"></p>
-    </form>
-  </main>
+        <label for="email">Email</label>
+        <input id="email" name="email" type="email" maxlength="200" autocomplete="email" required>
 
-  <!-- ====== LÓGICA (JavaScript): qué pasa al pulsar el botón ====== -->
-  <script>
-    // 1. Datos de conexión con Supabase (la clave publishable es pública por diseño)
+        <label for="modelo">Modelo IFC <span class="opcional">(opcional)</span></label>
+        <input id="modelo" name="modelo" type="file" accept=".ifc">
+        <p class="ayuda">Archivo .ifc de hasta 50 MB. Podrás revisarlo en el visor antes de enviarlo.</p>
+
+        <button type="submit" id="boton">Enviar registro</button>
+        <p id="mensaje" aria-live="polite"></p>
+      </form>
+    </main>
+
+    <!-- ====== NUEVO: VISOR ====== -->
+    <section class="tarjeta" aria-label="Visor del modelo IFC">
+      <div class="visor-cabecera">
+        <h2>Visor del modelo</h2>
+        <button type="button" id="encuadrar" disabled>Encuadrar modelo</button>
+      </div>
+
+      <div class="lienzo" id="lienzo">
+        <p id="estado-visor">Elige un archivo .ifc en el formulario para verlo aquí.</p>
+      </div>
+      <p class="pista">Arrastra para girar, rueda o pellizco para acercar, botón derecho o dos dedos para desplazar. Toca un elemento para ver sus propiedades.</p>
+
+      <div id="propiedades" aria-live="polite">
+        <p class="vacio">Selecciona un elemento del modelo para ver sus propiedades.</p>
+      </div>
+    </section>
+  </div>
+
+  <!-- ====== LÓGICA (JavaScript) ======
+       NUEVO: type="module" permite usar "import" para cargar librerías -->
+  <script type="module">
+    import * as THREE from "three";
+    import { OrbitControls } from "three/addons/controls/OrbitControls.js";
+    import * as WebIFC from "web-ifc";
+
+    // ================================================================
+    // PARTE A. FORMULARIO Y SUPABASE (igual que en la fase 1)
+    // ================================================================
     const SUPABASE_URL = "https://efgqsrbhwcmwkalkcpfv.supabase.co";
     const SUPABASE_KEY = "sb_publishable_R02_HFirC7v5BSgIIKft0A_qYdrf8Zw";
+    const cliente = supabase.createClient(SUPABASE_URL, SUPABASE_KEY);
+    const TAMANO_MAXIMO = 50 * 1024 * 1024;
 
-    // 2. "Agarramos" los elementos de la página para poder usarlos
     const formulario = document.getElementById("formulario");
     const boton = document.getElementById("boton");
     const mensaje = document.getElementById("mensaje");
 
-    // Pequeña función para mostrar mensajes en verde (ok) o rojo (error)
     function mostrar(texto, tipo) {
       mensaje.textContent = texto;
       mensaje.className = tipo;
     }
 
-    // 3. Cuando se envía el formulario...
-    formulario.addEventListener("submit", async (evento) => {
-      evento.preventDefault();   // evita que la página se recargue (comportamiento por defecto)
+    function limpiarNombre(nombre) {
+      return nombre
+        .normalize("NFD").replace(/[\u0300-\u036f]/g, "")
+        .replace(/[^a-zA-Z0-9._-]/g, "_");
+    }
 
-      // 4. Leemos lo que ha escrito el usuario, quitando espacios sobrantes con trim()
+    formulario.addEventListener("submit", async (evento) => {
+      evento.preventDefault();
+
       const datos = {
         nombre: formulario.nombre.value.trim(),
         apellidos: formulario.apellidos.value.trim(),
         email: formulario.email.value.trim().toLowerCase()
       };
+      const archivo = formulario.modelo.files[0];
 
-      // 5. Validación en el navegador (la base de datos vuelve a comprobarlo después)
       if (!datos.nombre || !datos.apellidos || !datos.email) {
-        mostrar("Rellena los tres campos.", "error");
+        mostrar("Rellena nombre, apellidos y email.", "error");
         return;
       }
       if (!/^[^@\s]+@[^@\s]+\.[^@\s]+$/.test(datos.email)) {
         mostrar("El email no tiene un formato válido (ejemplo: nombre@empresa.com).", "error");
         return;
       }
+      if (archivo && !archivo.name.toLowerCase().endsWith(".ifc")) {
+        mostrar("El modelo debe ser un archivo .ifc.", "error");
+        return;
+      }
+      if (archivo && archivo.size > TAMANO_MAXIMO) {
+        const mb = (archivo.size / 1024 / 1024).toFixed(1);
+        mostrar(`El modelo ocupa ${mb} MB y el máximo es 50 MB.`, "error");
+        return;
+      }
 
-      // 6. Bloqueamos el botón para evitar envíos dobles
       boton.disabled = true;
-      boton.textContent = "Enviando…";
       mostrar("", "");
 
       try {
-        // 7. Enviamos los datos a Supabase: una petición POST a la tabla "registros"
-        const respuesta = await fetch(SUPABASE_URL + "/rest/v1/registros", {
-          method: "POST",                         // POST = "crear algo nuevo"
-          headers: {
-            "apikey": SUPABASE_KEY,               // nos identificamos con la clave pública
-            "Content-Type": "application/json",   // avisamos de que enviamos JSON
-            "Prefer": "return=minimal"            // no pedimos que nos devuelva la fila
-          },
-          body: JSON.stringify(datos)             // convertimos el objeto en texto JSON
-        });
+        if (archivo) {
+          boton.textContent = "Subiendo modelo…";
+          const ruta = crypto.randomUUID() + "/" + limpiarNombre(archivo.name);
+          const { error: errorSubida } = await cliente.storage
+            .from("modelos")
+            .upload(ruta, archivo, { contentType: "application/octet-stream", upsert: false });
 
-        // 8. Comprobamos el resultado
-        if (respuesta.ok) {
-          mostrar("Registro enviado. ¡Gracias!", "ok");
-          formulario.reset();                     // vaciamos los campos
-        } else {
-          const error = await respuesta.json();
-          console.error("Error de Supabase:", error);   // detalle técnico en la consola
+          if (errorSubida) {
+            console.error("Error al subir el modelo:", errorSubida);
+            mostrar("No se ha podido subir el modelo. Comprueba que es un .ifc de menos de 50 MB.", "error");
+            return;
+          }
+          datos.archivo_ifc = ruta;
+        }
+
+        boton.textContent = "Guardando registro…";
+        const { error } = await cliente.from("registros").insert(datos);
+
+        if (error) {
+          console.error("Error de Supabase:", error);
           if (error.code === "23514") {
             mostrar("Algún dato no es válido. Revisa el formato del email y la longitud de los campos.", "error");
           } else {
             mostrar("No se ha podido guardar el registro. Inténtalo de nuevo en unos minutos.", "error");
           }
+        } else {
+          mostrar(archivo ? "Registro y modelo enviados. ¡Gracias!" : "Registro enviado. ¡Gracias!", "ok");
+          formulario.reset();
+          vaciarVisor();     // NUEVO: el visor se vacía junto con el formulario
         }
       } catch (fallo) {
-        // Llega aquí si no hay conexión a internet o el servidor no responde
         console.error("Error de red:", fallo);
         mostrar("Sin conexión con el servidor. Comprueba tu internet e inténtalo de nuevo.", "error");
       } finally {
-        // 9. Pase lo que pase, volvemos a activar el botón
         boton.disabled = false;
         boton.textContent = "Enviar registro";
       }
     });
+
+    // ================================================================
+    // PARTE B. ESCENA 3D CON THREE.JS
+    // Three.js dibuja en 3D. Necesita siempre 4 cosas:
+    // escena (qué hay), cámara (desde dónde se mira),
+    // renderizador (quién dibuja) y luces (para que se vea el volumen).
+    // ================================================================
+    const lienzo = document.getElementById("lienzo");
+    const estadoVisor = document.getElementById("estado-visor");
+    const botonEncuadrar = document.getElementById("encuadrar");
+    const panelPropiedades = document.getElementById("propiedades");
+
+    const escena = new THREE.Scene();
+    escena.background = new THREE.Color("#f1f4f5");
+
+    const camara = new THREE.PerspectiveCamera(45, 1, 0.1, 10000);
+    camara.position.set(20, 15, 20);
+
+    const renderizador = new THREE.WebGLRenderer({ antialias: true });
+    renderizador.setPixelRatio(Math.min(window.devicePixelRatio, 2));
+    lienzo.appendChild(renderizador.domElement);
+
+    // Luz ambiental (cielo/suelo) + luz direccional (como el sol)
+    escena.add(new THREE.HemisphereLight(0xffffff, 0x8a9aa0, 2.2));
+    const sol = new THREE.DirectionalLight(0xffffff, 1.6);
+    sol.position.set(1, 2, 1.5);
+    escena.add(sol);
+
+    // Controles de órbita: girar, acercar y desplazar con ratón o dedos
+    const controles = new OrbitControls(camara, renderizador.domElement);
+    controles.enableDamping = true;   // movimiento suave
+
+    // Ajusta el dibujo cuando cambia el tamaño de la caja (ventana, giro del móvil…)
+    new ResizeObserver(() => {
+      const ancho = lienzo.clientWidth;
+      const alto = lienzo.clientHeight;
+      renderizador.setSize(ancho, alto, false);
+      camara.aspect = ancho / alto;
+      camara.updateProjectionMatrix();
+    }).observe(lienzo);
+
+    // Bucle de dibujo: se repite unas 60 veces por segundo
+    renderizador.setAnimationLoop(() => {
+      controles.update();
+      renderizador.render(escena, camara);
+    });
+
+    // ================================================================
+    // PARTE C. LEER EL IFC CON WEB-IFC
+    // web-ifc es el "traductor": abre el archivo IFC y nos da
+    // triángulos (geometría) y datos (propiedades).
+    // Funciona con WebAssembly (.wasm): código muy rápido que corre en el navegador.
+    // ================================================================
+    const WASM_URL = "https://cdn.jsdelivr.net/npm/web-ifc@0.0.78/";
+    const ifc = new WebIFC.IfcAPI();
+    let ifcListo = null;          // promesa de arranque: se inicia la primera vez que hace falta
+
+    let modeloId = null;          // número que web-ifc asigna al modelo abierto
+    let grupoModelo = null;       // todos los objetos 3D del modelo
+    let mallasPorElemento = new Map();   // expressID -> lista de mallas 3D de ese elemento
+    let seleccion = null;         // { id, mallas, materiales originales }
+
+    const materialSeleccion = new THREE.MeshLambertMaterial({ color: 0xf2a541, side: THREE.DoubleSide });
+
+    function arrancarWebIfc() {
+      if (!ifcListo) {
+        // true = un solo hilo (GitHub Pages no permite el modo multihilo)
+        ifcListo = ifc.Init((archivoWasm) => WASM_URL + archivoWasm, true);
+      }
+      return ifcListo;
+    }
+
+    function estado(texto) {
+      estadoVisor.textContent = texto;
+      estadoVisor.classList.toggle("oculto", !texto);
+    }
+
+    // Cuando el usuario elige un archivo, lo abrimos en el visor (todavía no se sube nada)
+    formulario.modelo.addEventListener("change", async () => {
+      const archivo = formulario.modelo.files[0];
+      vaciarVisor();
+      if (!archivo) return;
+      if (!archivo.name.toLowerCase().endsWith(".ifc")) {
+        estado("Este archivo no es un .ifc.");
+        return;
+      }
+
+      try {
+        estado("Preparando el visor…");
+        await arrancarWebIfc();
+
+        estado("Leyendo el modelo…");
+        const bytes = new Uint8Array(await archivo.arrayBuffer());
+        await new Promise((r) => setTimeout(r, 30));   // deja que el mensaje se pinte antes del trabajo pesado
+
+        // COORDINATE_TO_ORIGIN mueve el modelo cerca del origen (0,0,0).
+        // Imprescindible en obra civil: con coordenadas UTM (cientos de miles de metros)
+        // la tarjeta gráfica pierde precisión y el modelo "tiembla" o se ve roto.
+        modeloId = ifc.OpenModel(bytes, { COORDINATE_TO_ORIGIN: true });
+
+        estado("Generando la geometría…");
+        await new Promise((r) => setTimeout(r, 30));
+        crearGeometria();
+
+        if (grupoModelo.children.length === 0) {
+          estado("El modelo se ha leído pero no contiene geometría visible.");
+        } else {
+          estado("");
+          encuadrar();
+          botonEncuadrar.disabled = false;
+        }
+      } catch (fallo) {
+        console.error("Error al abrir el IFC:", fallo);
+        estado("No se ha podido leer el archivo. Comprueba que es un IFC válido.");
+      }
+    });
+
+    // Convierte la geometría de web-ifc en objetos de three.js
+    function crearGeometria() {
+      grupoModelo = new THREE.Group();
+      const materiales = new Map();   // reutilizamos un material por cada color
+
+      // StreamAllMeshes recorre todos los elementos con geometría (muros, losas, tuberías…)
+      ifc.StreamAllMeshes(modeloId, (malla) => {
+        const geometriasColocadas = malla.geometries;
+
+        for (let i = 0; i < geometriasColocadas.size(); i++) {
+          const colocada = geometriasColocadas.get(i);
+          const geo = ifc.GetGeometry(modeloId, colocada.geometryExpressID);
+
+          // Vértices: cada vértice ocupa 6 números -> posición (x,y,z) + normal (nx,ny,nz)
+          const vertices = ifc.GetVertexArray(geo.GetVertexData(), geo.GetVertexDataSize());
+          const indices = ifc.GetIndexArray(geo.GetIndexData(), geo.GetIndexDataSize());
+
+          const geometria = new THREE.BufferGeometry();
+          const intercalado = new THREE.InterleavedBuffer(new Float32Array(vertices), 6);
+          geometria.setAttribute("position", new THREE.InterleavedBufferAttribute(intercalado, 3, 0));
+          geometria.setAttribute("normal", new THREE.InterleavedBufferAttribute(intercalado, 3, 3));
+          geometria.setIndex(new THREE.BufferAttribute(new Uint32Array(indices), 1));
+
+          // Material según el color del IFC (con transparencia si la tiene, p. ej. vidrios)
+          const c = colocada.color;
+          const clave = [c.x, c.y, c.z, c.w].join(",");
+          if (!materiales.has(clave)) {
+            materiales.set(clave, new THREE.MeshLambertMaterial({
+              color: new THREE.Color(c.x, c.y, c.z),
+              transparent: c.w < 1,
+              opacity: c.w,
+              side: THREE.DoubleSide
+            }));
+          }
+
+          const objeto = new THREE.Mesh(geometria, materiales.get(clave));
+          // La transformación coloca la pieza en su posición dentro del modelo
+          objeto.matrix.fromArray(colocada.flatTransformation);
+          objeto.matrixAutoUpdate = false;
+          // Guardamos el identificador IFC del elemento para saber qué se ha tocado
+          objeto.userData.expressID = malla.expressID;
+
+          grupoModelo.add(objeto);
+          if (!mallasPorElemento.has(malla.expressID)) mallasPorElemento.set(malla.expressID, []);
+          mallasPorElemento.get(malla.expressID).push(objeto);
+
+          geo.delete();   // liberamos memoria de web-ifc: three.js ya tiene su copia
+        }
+      });
+
+      escena.add(grupoModelo);
+    }
+
+    // Coloca la cámara para que se vea el modelo entero
+    function encuadrar() {
+      if (!grupoModelo) return;
+      grupoModelo.updateMatrixWorld(true);
+      const caja = new THREE.Box3().setFromObject(grupoModelo);
+      const centro = caja.getCenter(new THREE.Vector3());
+      const tamano = caja.getSize(new THREE.Vector3()).length() || 1;
+
+      camara.near = tamano / 1000;
+      camara.far = tamano * 100;
+      camara.position.copy(centro).add(new THREE.Vector3(0.6, 0.45, 0.6).multiplyScalar(tamano));
+      camara.updateProjectionMatrix();
+      controles.target.copy(centro);
+      controles.update();
+    }
+    botonEncuadrar.addEventListener("click", encuadrar);
+
+    // Cierra el modelo y libera la memoria (al cambiar de archivo o tras enviar)
+    function vaciarVisor() {
+      quitarSeleccion();
+      if (grupoModelo) {
+        const materialesUsados = new Set();
+        grupoModelo.traverse((o) => {
+          if (o.isMesh) { o.geometry.dispose(); materialesUsados.add(o.material); }
+        });
+        materialesUsados.forEach((m) => m.dispose());
+        escena.remove(grupoModelo);
+        grupoModelo = null;
+      }
+      if (modeloId !== null) {
+        ifc.CloseModel(modeloId);
+        modeloId = null;
+      }
+      mallasPorElemento = new Map();
+      botonEncuadrar.disabled = true;
+      estado("Elige un archivo .ifc en el formulario para verlo aquí.");
+      mostrarPanelVacio();
+    }
+
+    // ================================================================
+    // PARTE D. SELECCIONAR ELEMENTOS
+    // "Raycasting": lanzamos un rayo desde la cámara hacia donde se ha
+    // hecho clic y vemos qué objeto atraviesa primero.
+    // ================================================================
+    const rayo = new THREE.Raycaster();
+    let puntoInicio = null;
+
+    renderizador.domElement.addEventListener("pointerdown", (e) => {
+      puntoInicio = { x: e.clientX, y: e.clientY };
+    });
+
+    renderizador.domElement.addEventListener("pointerup", (e) => {
+      if (!puntoInicio || !grupoModelo) return;
+      // Si el puntero se ha movido, era un giro de cámara, no un clic
+      const movido = Math.hypot(e.clientX - puntoInicio.x, e.clientY - puntoInicio.y);
+      puntoInicio = null;
+      if (movido > 5) return;
+
+      // Pasamos la posición del clic a coordenadas de -1 a 1, que es lo que entiende three.js
+      const r = renderizador.domElement.getBoundingClientRect();
+      const punto = new THREE.Vector2(
+        ((e.clientX - r.left) / r.width) * 2 - 1,
+        -((e.clientY - r.top) / r.height) * 2 + 1
+      );
+      rayo.setFromCamera(punto, camara);
+      const impactos = rayo.intersectObjects(grupoModelo.children, false);
+
+      if (impactos.length === 0) {
+        quitarSeleccion();
+        mostrarPanelVacio();
+        return;
+      }
+      seleccionar(impactos[0].object.userData.expressID);
+    });
+
+    function seleccionar(id) {
+      quitarSeleccion();
+      const mallas = mallasPorElemento.get(id) || [];
+      seleccion = { id, mallas, originales: mallas.map((m) => m.material) };
+      mallas.forEach((m) => { m.material = materialSeleccion; });   // lo pintamos en naranja
+      mostrarPropiedades(id);
+    }
+
+    function quitarSeleccion() {
+      if (!seleccion) return;
+      seleccion.mallas.forEach((m, i) => { m.material = seleccion.originales[i]; });
+      seleccion = null;
+    }
+
+    // ================================================================
+    // PARTE E. PROPIEDADES
+    // En IFC, los datos de un elemento están en dos sitios:
+    //  1) sus ATRIBUTOS directos (GlobalId, Name, Description, Tag…)
+    //  2) sus CONJUNTOS DE PROPIEDADES (Psets) y de CANTIDADES (Qtos),
+    //     incluidos los heredados de su tipo (IfcWallType, IfcPipeSegmentType…)
+    // ================================================================
+
+    // web-ifc envuelve los valores en objetos {value: ...}: esta función saca el valor limpio
+    function valor(dato) {
+      if (dato === null || dato === undefined) return "";
+      if (typeof dato === "object" && "value" in dato) dato = dato.value;
+      if (typeof dato === "boolean") return dato ? "Sí" : "No";
+      if (dato === "T") return "Sí";
+      if (dato === "F") return "No";
+      if (typeof dato === "number") return String(Math.round(dato * 1000) / 1000);
+      return String(dato);
+    }
+
+    async function mostrarPropiedades(id) {
+      const atributos = ifc.GetLine(modeloId, id);
+      const tipoIfc = ifc.GetNameFromTypeCode(ifc.GetLineType(modeloId, id));
+
+      // 1) Atributos principales
+      const filasAtributos = [
+        ["Clase IFC", tipoIfc],
+        ["GlobalId", valor(atributos.GlobalId)],
+        ["Name", valor(atributos.Name)],
+        ["Description", valor(atributos.Description)],
+        ["ObjectType", valor(atributos.ObjectType)],
+        ["Tag", valor(atributos.Tag)],
+        ["PredefinedType", valor(atributos.PredefinedType)]
+      ].filter(([, v]) => v !== "");
+
+      // 2) Psets y Qtos (el "true" final incluye también los del tipo)
+      const conjuntos = await ifc.properties.getPropertySets(modeloId, id, false, true);
+      const grupos = conjuntos.map((conjunto) => {
+        const referencias = conjunto.HasProperties || conjunto.Quantities || [];
+        const filas = referencias.map((ref) => {
+          const p = ifc.GetLine(modeloId, ref.value);
+          // Una propiedad guarda su valor en NominalValue; una cantidad, según su clase
+          const v = p.NominalValue ?? p.LengthValue ?? p.AreaValue ?? p.VolumeValue
+                 ?? p.CountValue ?? p.WeightValue ?? p.TimeValue;
+          return [valor(p.Name), valor(v)];
+        });
+        return { nombre: valor(conjunto.Name) || "(sin nombre)", filas };
+      });
+
+      // Pintamos el panel. Usamos textContent (no innerHTML) porque los textos
+      // vienen del archivo, y así nunca se ejecutan como código.
+      panelPropiedades.replaceChildren();
+
+      const tipo = document.createElement("p");
+      tipo.className = "elemento-tipo";
+      tipo.textContent = tipoIfc;
+      const nombre = document.createElement("p");
+      nombre.className = "elemento-nombre";
+      nombre.textContent = valor(atributos.Name) || "Elemento sin nombre";
+      panelPropiedades.append(tipo, nombre);
+
+      panelPropiedades.append(crearBloque("Atributos", filasAtributos, true));
+      grupos.forEach((g) => panelPropiedades.append(crearBloque(g.nombre, g.filas, false)));
+
+      if (grupos.length === 0) {
+        const aviso = document.createElement("p");
+        aviso.className = "vacio";
+        aviso.textContent = "Este elemento no tiene conjuntos de propiedades.";
+        panelPropiedades.append(aviso);
+      }
+    }
+
+    // Crea un bloque desplegable con una tabla de nombre | valor
+    function crearBloque(titulo, filas, abierto) {
+      const bloque = document.createElement("details");
+      bloque.open = abierto;
+      const resumen = document.createElement("summary");
+      resumen.textContent = `${titulo} (${filas.length})`;
+
+      const contenedor = document.createElement("div");
+      contenedor.className = "tabla-scroll";
+      const tabla = document.createElement("table");
+      filas.forEach(([n, v]) => {
+        const fila = tabla.insertRow();
+        const th = document.createElement("th");
+        th.textContent = n;
+        const td = document.createElement("td");
+        td.textContent = v;
+        fila.append(th, td);
+      });
+      contenedor.append(tabla);
+      bloque.append(resumen, contenedor);
+      return bloque;
+    }
+
+    function mostrarPanelVacio() {
+      panelPropiedades.replaceChildren();
+      const p = document.createElement("p");
+      p.className = "vacio";
+      p.textContent = "Selecciona un elemento del modelo para ver sus propiedades.";
+      panelPropiedades.append(p);
+    }
   </script>
 </body>
 </html>
