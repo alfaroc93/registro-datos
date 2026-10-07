@@ -1,0 +1,180 @@
+<!DOCTYPE html>
+<html lang="es">
+<head>
+  <!-- ====== CABECERA: información para el navegador, no se ve en pantalla ====== -->
+  <meta charset="UTF-8">
+  <!-- Hace que la página se adapte a la pantalla del móvil -->
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>Registro</title>
+  <link rel="preconnect" href="https://fonts.googleapis.com">
+  <link href="https://fonts.googleapis.com/css2?family=Figtree:wght@400;600;700&display=swap" rel="stylesheet">
+
+  <!-- ====== ESTILOS (CSS): cómo se ve la página ====== -->
+  <style>
+    /* Colores guardados como "variables" para cambiarlos en un solo sitio */
+    :root {
+      --fondo: #e9eef0;
+      --tarjeta: #ffffff;
+      --tinta: #16323d;
+      --suave: #5b7480;
+      --acento: #1f6f78;
+      --error: #b3261e;
+      --ok: #2e7d4f;
+    }
+    * { box-sizing: border-box; }
+    body {
+      margin: 0;
+      min-height: 100vh;
+      display: grid;
+      place-items: center;          /* centra la tarjeta en la pantalla */
+      padding: 24px;
+      background: var(--fondo);
+      color: var(--tinta);
+      font-family: "Figtree", system-ui, -apple-system, "Segoe UI", sans-serif;
+    }
+    main {
+      width: 100%;
+      max-width: 420px;
+      background: var(--tarjeta);
+      padding: 32px 28px;
+      border-radius: 6px;
+      border-top: 6px solid var(--acento);
+    }
+    h1 { margin: 0 0 6px; font-size: 1.6rem; }
+    p.intro { margin: 0 0 24px; color: var(--suave); line-height: 1.5; }
+    label { display: block; font-weight: 600; margin-bottom: 6px; }
+    input {
+      width: 100%;
+      padding: 12px;
+      margin-bottom: 18px;
+      font: inherit;
+      font-size: 1rem;              /* 16px evita que el iPhone haga zoom */
+      border: 1px solid #b9c7cd;
+      border-radius: 4px;
+    }
+    input:focus { outline: 3px solid #9fd0d5; border-color: var(--acento); }
+    button {
+      width: 100%;
+      padding: 14px;
+      font: inherit;
+      font-weight: 700;
+      font-size: 1rem;
+      color: #fff;
+      background: var(--acento);
+      border: none;
+      border-radius: 4px;
+      cursor: pointer;
+    }
+    button:disabled { opacity: 0.6; cursor: wait; }
+    button:focus-visible { outline: 3px solid #9fd0d5; outline-offset: 2px; }
+    #mensaje { margin: 16px 0 0; min-height: 1.5em; font-weight: 600; }
+    #mensaje.error { color: var(--error); }
+    #mensaje.ok { color: var(--ok); }
+  </style>
+</head>
+
+<body>
+  <!-- ====== CONTENIDO (HTML): lo que se ve ====== -->
+  <main>
+    <h1>Registro</h1>
+    <p class="intro">Rellena tus datos y pulsa "Enviar registro".</p>
+
+    <!-- "novalidate" desactiva los avisos automáticos del navegador:
+         validamos nosotros en el JavaScript para controlar los mensajes -->
+    <form id="formulario" novalidate>
+      <label for="nombre">Nombre</label>
+      <input id="nombre" name="nombre" type="text" maxlength="100" autocomplete="given-name" required>
+
+      <label for="apellidos">Apellidos</label>
+      <input id="apellidos" name="apellidos" type="text" maxlength="150" autocomplete="family-name" required>
+
+      <label for="email">Email</label>
+      <input id="email" name="email" type="email" maxlength="200" autocomplete="email" required>
+
+      <button type="submit" id="boton">Enviar registro</button>
+      <!-- aria-live hace que los lectores de pantalla lean el mensaje cuando cambie -->
+      <p id="mensaje" aria-live="polite"></p>
+    </form>
+  </main>
+
+  <!-- ====== LÓGICA (JavaScript): qué pasa al pulsar el botón ====== -->
+  <script>
+    // 1. Datos de conexión con Supabase (la clave publishable es pública por diseño)
+    const SUPABASE_URL = "https://efgqsrbhwcmwkalkcpfv.supabase.co";
+    const SUPABASE_KEY = "sb_publishable_R02_HFirC7v5BSgIIKft0A_qYdrf8Zw";
+
+    // 2. "Agarramos" los elementos de la página para poder usarlos
+    const formulario = document.getElementById("formulario");
+    const boton = document.getElementById("boton");
+    const mensaje = document.getElementById("mensaje");
+
+    // Pequeña función para mostrar mensajes en verde (ok) o rojo (error)
+    function mostrar(texto, tipo) {
+      mensaje.textContent = texto;
+      mensaje.className = tipo;
+    }
+
+    // 3. Cuando se envía el formulario...
+    formulario.addEventListener("submit", async (evento) => {
+      evento.preventDefault();   // evita que la página se recargue (comportamiento por defecto)
+
+      // 4. Leemos lo que ha escrito el usuario, quitando espacios sobrantes con trim()
+      const datos = {
+        nombre: formulario.nombre.value.trim(),
+        apellidos: formulario.apellidos.value.trim(),
+        email: formulario.email.value.trim().toLowerCase()
+      };
+
+      // 5. Validación en el navegador (la base de datos vuelve a comprobarlo después)
+      if (!datos.nombre || !datos.apellidos || !datos.email) {
+        mostrar("Rellena los tres campos.", "error");
+        return;
+      }
+      if (!/^[^@\s]+@[^@\s]+\.[^@\s]+$/.test(datos.email)) {
+        mostrar("El email no tiene un formato válido (ejemplo: nombre@empresa.com).", "error");
+        return;
+      }
+
+      // 6. Bloqueamos el botón para evitar envíos dobles
+      boton.disabled = true;
+      boton.textContent = "Enviando…";
+      mostrar("", "");
+
+      try {
+        // 7. Enviamos los datos a Supabase: una petición POST a la tabla "registros"
+        const respuesta = await fetch(SUPABASE_URL + "/rest/v1/registros", {
+          method: "POST",                         // POST = "crear algo nuevo"
+          headers: {
+            "apikey": SUPABASE_KEY,               // nos identificamos con la clave pública
+            "Content-Type": "application/json",   // avisamos de que enviamos JSON
+            "Prefer": "return=minimal"            // no pedimos que nos devuelva la fila
+          },
+          body: JSON.stringify(datos)             // convertimos el objeto en texto JSON
+        });
+
+        // 8. Comprobamos el resultado
+        if (respuesta.ok) {
+          mostrar("Registro enviado. ¡Gracias!", "ok");
+          formulario.reset();                     // vaciamos los campos
+        } else {
+          const error = await respuesta.json();
+          console.error("Error de Supabase:", error);   // detalle técnico en la consola
+          if (error.code === "23514") {
+            mostrar("Algún dato no es válido. Revisa el formato del email y la longitud de los campos.", "error");
+          } else {
+            mostrar("No se ha podido guardar el registro. Inténtalo de nuevo en unos minutos.", "error");
+          }
+        }
+      } catch (fallo) {
+        // Llega aquí si no hay conexión a internet o el servidor no responde
+        console.error("Error de red:", fallo);
+        mostrar("Sin conexión con el servidor. Comprueba tu internet e inténtalo de nuevo.", "error");
+      } finally {
+        // 9. Pase lo que pase, volvemos a activar el botón
+        boton.disabled = false;
+        boton.textContent = "Enviar registro";
+      }
+    });
+  </script>
+</body>
+</html>
